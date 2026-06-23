@@ -8,8 +8,22 @@ from PIL import Image, ImageDraw, ImageFont
 import re
 from io import BytesIO
 import random
-import zipfile
 import base64
+import subprocess
+import sys
+
+# Try to import required libraries
+try:
+    from gtts import gTTS
+except ImportError:
+    st.error("gTTS not installed. Please install it.")
+    st.stop()
+
+try:
+    from moviepy.editor import *
+except ImportError:
+    st.error("moviepy not installed. Please install it.")
+    st.stop()
 
 st.set_page_config(
     page_title="AI Explainer Video Generator",
@@ -47,17 +61,18 @@ CSS_STYLES = (
 
 INFO_HTML = (
     '<div class="info-box">'
-    '🤖 <b>Just provide your script - we will do the rest!</b><br>'
+    '🎬 <b>Generate a complete MP4 video with voiceover!</b><br>'
     'Our AI will automatically:'
     '• Parse your script into scenes'
-    '• Generate relevant images for each scene'
-    '• Package them into a downloadable ZIP file'
+    '• Generate images for each scene'
+    '• Create voiceovers using TTS'
+    '• Combine everything into a professional MP4 video'
     '</div>'
 )
 
 SUCCESS_HTML = (
     '<div class="success-box">'
-    '<h3>✅ Your Slides are Ready!</h3>'
+    '<h3>✅ Your Video is Ready!</h3>'
     '</div>'
 )
 
@@ -85,7 +100,7 @@ class FreeImageGenerator:
             'creative': ['creative', 'design', 'art', 'innovation']
         }
         
-    def get_random_image(self, keyword="nature", width=800, height=600):
+    def get_random_image(self, keyword="nature", width=1920, height=1080):
         try:
             url = "https://picsum.photos/seed/" + str(random.randint(1, 1000)) + "/" + str(width) + "/" + str(height)
             response = requests.get(url, timeout=10)
@@ -239,20 +254,23 @@ class ScriptParser:
         
         return scenes
 
-class SlideCreator:
-    def __init__(self):
+class VideoCreator:
+    def __init__(self, resolution=(1920, 1080), fps=24):
+        self.resolution = resolution
+        self.fps = fps
         self.image_gen = FreeImageGenerator()
+        self.temp_dir = tempfile.mkdtemp()
         
-    def create_text_slide(self, text, bg_color='#1a237e', text_color='#ffffff', width=800, height=600):
+    def create_text_slide(self, text, bg_color='#1a237e', text_color='#ffffff', width=1920, height=1080):
         bg_rgb = tuple(int(bg_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
         img = Image.new('RGB', (width, height), color=bg_rgb)
         draw = ImageDraw.Draw(img)
         
         try:
-            font = ImageFont.truetype("arial.ttf", 40)
+            font = ImageFont.truetype("arial.ttf", 80)
         except:
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 80)
             except:
                 font = ImageFont.load_default()
         
@@ -270,19 +288,60 @@ class SlideCreator:
         if current_line:
             lines.append(' '.join(current_line))
         
-        y_offset = (height - len(lines) * 50) // 2
+        y_offset = (height - len(lines) * 90) // 2
         text_rgb = tuple(int(text_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             x = (width - bbox[2]) // 2
-            draw.text((x+2, y_offset+2), line, fill='black', font=font)
+            draw.text((x+3, y_offset+3), line, fill='black', font=font)
             draw.text((x, y_offset), line, fill=text_rgb, font=font)
-            y_offset += 50
+            y_offset += 90
         
         return img
     
-    def create_bullet_slide(self, title, bullets, width=800, height=600):
+    def create_bullet_slide(self, title, bullets, width=1920, height=1080):
         img = self.image_gen.get_random_image("business", width, height)
+        if img.size != (width, height):
+            img = img.resize((width, height), Image.LANCZOS)
+        
+        overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        for x in range(width):
+            for y in range(height):
+                overlay.putpixel((x, y), (0, 0, 0, 180))
+        
+        img = img.convert('RGBA')
+        img = Image.alpha_composite(img, overlay)
+        img = img.convert('RGB')
+        
+        draw = ImageDraw.Draw(img)
+        
+        try:
+            title_font = ImageFont.truetype("arial.ttf", 90)
+            bullet_font = ImageFont.truetype("arial.ttf", 55)
+        except:
+            try:
+                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 90)
+                bullet_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 55)
+            except:
+                title_font = ImageFont.load_default()
+                bullet_font = ImageFont.load_default()
+        
+        bbox = draw.textbbox((0, 0), title, font=title_font)
+        x = (width - bbox[2]) // 2
+        draw.text((x, 80), title, fill='#FFD700', font=title_font)
+        
+        y = 250
+        for point in bullets[:6]:
+            bullet_text = "• " + point
+            bbox = draw.textbbox((0, 0), bullet_text, font=bullet_font)
+            x = 150
+            draw.text((x, y), bullet_text, fill='white', font=bullet_font)
+            y += 80
+        
+        return img
+    
+    def create_chart_slide(self, title, data, width=1920, height=1080):
+        img = self.image_gen.get_random_image("finance", width, height)
         if img.size != (width, height):
             img = img.resize((width, height), Image.LANCZOS)
         
@@ -298,60 +357,19 @@ class SlideCreator:
         draw = ImageDraw.Draw(img)
         
         try:
-            title_font = ImageFont.truetype("arial.ttf", 50)
-            bullet_font = ImageFont.truetype("arial.ttf", 30)
+            title_font = ImageFont.truetype("arial.ttf", 70)
+            label_font = ImageFont.truetype("arial.ttf", 40)
         except:
             try:
-                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50)
-                bullet_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 30)
-            except:
-                title_font = ImageFont.load_default()
-                bullet_font = ImageFont.load_default()
-        
-        bbox = draw.textbbox((0, 0), title, font=title_font)
-        x = (width - bbox[2]) // 2
-        draw.text((x, 50), title, fill='#FFD700', font=title_font)
-        
-        y = 150
-        for point in bullets[:6]:
-            bullet_text = "• " + point
-            bbox = draw.textbbox((0, 0), bullet_text, font=bullet_font)
-            x = 100
-            draw.text((x, y), bullet_text, fill='white', font=bullet_font)
-            y += 50
-        
-        return img
-    
-    def create_chart_slide(self, title, data, width=800, height=600):
-        img = self.image_gen.get_random_image("finance", width, height)
-        if img.size != (width, height):
-            img = img.resize((width, height), Image.LANCZOS)
-        
-        overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        for x in range(width):
-            for y in range(height):
-                overlay.putpixel((x, y), (0, 0, 0, 100))
-        
-        img = img.convert('RGBA')
-        img = Image.alpha_composite(img, overlay)
-        img = img.convert('RGB')
-        
-        draw = ImageDraw.Draw(img)
-        
-        try:
-            title_font = ImageFont.truetype("arial.ttf", 40)
-            label_font = ImageFont.truetype("arial.ttf", 25)
-        except:
-            try:
-                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
-                label_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 25)
+                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 70)
+                label_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
             except:
                 title_font = ImageFont.load_default()
                 label_font = ImageFont.load_default()
         
         bbox = draw.textbbox((0, 0), title, font=title_font)
         x = (width - bbox[2]) // 2
-        draw.text((x, 30), title, fill='#FFD700', font=title_font)
+        draw.text((x, 50), title, fill='#FFD700', font=title_font)
         
         if not data:
             data = {'No Data': 1}
@@ -360,28 +378,151 @@ class SlideCreator:
         if max_val == 0:
             max_val = 1
         
-        bar_width = min((width - 200) // len(data), 80)
-        x_start = (width - (bar_width * len(data) + 30 * (len(data) - 1))) // 2
-        y_base = height - 100
+        bar_width = min((width - 300) // len(data), 150)
+        x_start = (width - (bar_width * len(data) + 50 * (len(data) - 1))) // 2
+        y_base = height - 150
         
         colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F']
         
         for i, (label, value) in enumerate(data.items()):
-            bar_height = (value / max_val) * (height - 200)
+            bar_height = (value / max_val) * (height - 300)
             if bar_height < 10:
                 bar_height = 10
-            x = x_start + i * (bar_width + 30)
+            x = x_start + i * (bar_width + 50)
             color = colors[i % len(colors)]
             
             draw.rectangle([x, y_base - bar_height, x + bar_width, y_base], fill=color)
-            draw.text((x + bar_width//2 - 10, y_base - bar_height - 25), 
+            draw.text((x + bar_width//2 - 20, y_base - bar_height - 40), 
                      str(int(value)), fill='white', font=label_font)
             
             bbox = draw.textbbox((0, 0), label, font=label_font)
-            draw.text((x + (bar_width - bbox[2])//2, y_base + 10), 
+            draw.text((x + (bar_width - bbox[2])//2, y_base + 20), 
                      label, fill='white', font=label_font)
         
         return img
+    
+    def generate_voiceover(self, text, output_path, lang='en'):
+        if not text or text.strip() == "":
+            return None
+        
+        try:
+            tts = gTTS(text=text, lang=lang, slow=False)
+            tts.save(output_path)
+            return output_path
+        except Exception as e:
+            st.error("Error generating voiceover: " + str(e))
+            return None
+    
+    def get_audio_duration(self, audio_path):
+        try:
+            audio = AudioFileClip(audio_path)
+            duration = audio.duration
+            audio.close()
+            return duration
+        except:
+            return 3.0
+    
+    def create_scene_clip(self, scene, duration, width=1920, height=1080):
+        scene_type = scene.get('type', 'text')
+        
+        if scene_type == 'text':
+            img = self.create_text_slide(
+                scene.get('content', ''),
+                width=width,
+                height=height
+            )
+        elif scene_type == 'bullets':
+            img = self.create_bullet_slide(
+                scene.get('title', ''),
+                scene.get('bullets', []),
+                width=width,
+                height=height
+            )
+        elif scene_type == 'chart':
+            img = self.create_chart_slide(
+                scene.get('title', ''),
+                scene.get('data', {}),
+                width=width,
+                height=height
+            )
+        else:
+            img = self.create_text_slide(
+                "Scene",
+                width=width,
+                height=height
+            )
+        
+        img_array = np.array(img)
+        clip = ImageClip(img_array).set_duration(duration)
+        return clip
+    
+    def create_video(self, scenes, output_path, lang='en', duration_per_scene=5):
+        video_clips = []
+        audio_clips = []
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        total_scenes = len(scenes)
+        
+        for idx, scene in enumerate(scenes):
+            progress = (idx / total_scenes) * 100
+            progress_bar.progress(int(progress))
+            status_text.text("Processing scene " + str(idx + 1) + "/" + str(total_scenes))
+            
+            # Generate voiceover
+            voiceover_text = scene.get('voiceover', '')
+            audio_path = os.path.join(self.temp_dir, "audio_" + str(idx) + ".mp3")
+            
+            if voiceover_text:
+                self.generate_voiceover(voiceover_text, audio_path, lang)
+                duration = self.get_audio_duration(audio_path)
+                if duration < 1:
+                    duration = duration_per_scene
+            else:
+                duration = duration_per_scene
+                audio_path = None
+            
+            # Create scene clip
+            clip = self.create_scene_clip(scene, duration)
+            
+            # Add audio if available
+            if audio_path and os.path.exists(audio_path):
+                try:
+                    audio = AudioFileClip(audio_path)
+                    clip = clip.set_audio(audio)
+                    audio_clips.append(audio)
+                except:
+                    pass
+            
+            video_clips.append(clip)
+        
+        progress_bar.progress(90)
+        status_text.text("Rendering final video...")
+        
+        if video_clips:
+            final_video = concatenate_videoclips(video_clips, method="compose")
+            
+            final_video.write_videofile(
+                output_path,
+                fps=self.fps,
+                codec='libx264',
+                audio_codec='aac',
+                threads=2,
+                verbose=False,
+                logger=None
+            )
+            
+            final_video.close()
+            for clip in video_clips:
+                clip.close()
+            for audio in audio_clips:
+                audio.close()
+        
+        progress_bar.progress(100)
+        status_text.text("Video generation complete!")
+        
+        return output_path
 
 def main():
     st.markdown('<h1 class="main-header">🎬 AI Explainer Video Generator</h1>', unsafe_allow_html=True)
@@ -390,13 +531,26 @@ def main():
     with st.sidebar:
         st.header("Settings")
         
-        resolution = st.selectbox(
-            "Image Quality",
-            ["High (800x600)", "Medium (600x400)", "Low (400x300)"],
+        lang = st.selectbox(
+            "Voiceover Language",
+            ["en", "es", "fr", "de", "it", "pt", "ja", "zh", "hi"],
             index=0
         )
+        
+        resolution = st.selectbox(
+            "Video Quality",
+            ["1920x1080 (HD)", "1280x720 (SD)"],
+            index=0
+        )
+        
+        duration_per_scene = st.slider(
+            "Default Duration per Scene (seconds)",
+            min_value=2,
+            max_value=10,
+            value=5
+        )
     
-    tab1, tab2, tab3 = st.tabs(["Script Input", "Scene Preview", "Generate Slides"])
+    tab1, tab2, tab3 = st.tabs(["Script Input", "Scene Preview", "Generate Video"])
     
     with tab1:
         st.subheader("Enter Your Script")
@@ -422,7 +576,16 @@ def main():
             st.markdown("`Sales: A=100, B=200, C=150`")
             st.markdown("")
             st.markdown("### Example Script:")
-            st.code("# Welcome to AI Explainer\n\nArtificial intelligence is transforming our world.\n\nKey AI applications:\n- Healthcare diagnosis\n- Self-driving cars\n\nAI adoption by industry:\nTechnology: 85%\nFinance: 72%")
+            st.code(
+                "# Welcome to AI Explainer\n\n"
+                "Artificial intelligence is transforming our world.\n\n"
+                "Key AI applications:\n"
+                "- Healthcare diagnosis\n"
+                "- Self-driving cars\n\n"
+                "AI adoption by industry:\n"
+                "Technology: 85%\n"
+                "Finance: 72%"
+            )
         
         st.divider()
         
@@ -452,14 +615,14 @@ def main():
         else:
             st.success(str(len(st.session_state.scenes)) + " scenes generated")
             
-            slide_creator = SlideCreator()
-            width, height = 600, 400
+            video_creator = VideoCreator()
+            width, height = 800, 450
             
             for idx, scene in enumerate(st.session_state.scenes):
                 with st.expander("Scene " + str(idx + 1), expanded=False):
                     if scene['type'] == 'text':
                         st.markdown("**Content:** " + scene.get('content', ''))
-                        img = slide_creator.create_text_slide(
+                        img = video_creator.create_text_slide(
                             scene.get('content', ''),
                             width=width,
                             height=height
@@ -469,7 +632,7 @@ def main():
                         st.markdown("**Title:** " + scene.get('title', ''))
                         for bullet in scene.get('bullets', []):
                             st.markdown("  • " + bullet)
-                        img = slide_creator.create_bullet_slide(
+                        img = video_creator.create_bullet_slide(
                             scene.get('title', ''),
                             scene.get('bullets', []),
                             width=width,
@@ -479,7 +642,7 @@ def main():
                     elif scene['type'] == 'chart':
                         st.markdown("**Chart:** " + scene.get('title', ''))
                         st.json(scene.get('data', {}))
-                        img = slide_creator.create_chart_slide(
+                        img = video_creator.create_chart_slide(
                             scene.get('title', ''),
                             scene.get('data', {}),
                             width=width,
@@ -488,96 +651,57 @@ def main():
                         st.image(img, caption="Preview")
                     
                     voiceover = scene.get('voiceover', '')
-                    st.caption("Voiceover: " + voiceover[:100])
+                    if voiceover:
+                        st.caption("Voiceover: " + voiceover[:100] + ("..." if len(voiceover) > 100 else ""))
+                    else:
+                        st.warning("No voiceover text")
     
     with tab3:
-        st.subheader("Generate Slides")
+        st.subheader("Generate Video")
         
         if not st.session_state.scenes:
             st.warning("Please analyze your script first (Tab 1) to generate scenes.")
         else:
-            if "High" in resolution:
-                width, height = 800, 600
-            elif "Medium" in resolution:
-                width, height = 600, 400
-            else:
-                width, height = 400, 300
-            
             total_duration = sum(len(scene.get('voiceover', '')) * 0.3 for scene in st.session_state.scenes)
-            st.info(str(len(st.session_state.scenes)) + " scenes, estimated duration: " + str(int(total_duration)) + " seconds")
+            if total_duration < 1:
+                total_duration = len(st.session_state.scenes) * duration_per_scene
+            st.info("📊 " + str(len(st.session_state.scenes)) + " scenes, estimated duration: " + str(int(total_duration)) + " seconds")
             
             col1, col2 = st.columns([2, 1])
             with col1:
                 video_name = st.text_input(
-                    "File Name",
-                    value="slides_" + datetime.now().strftime('%Y%m%d_%H%M%S')
+                    "Video Name",
+                    value="explainer_" + datetime.now().strftime('%Y%m%d_%H%M%S')
                 )
             
             with col2:
                 st.write("")
-                if st.button("Generate Slides", type="primary", use_container_width=True):
+                if st.button("🎬 Generate MP4 Video", type="primary", use_container_width=True):
                     try:
-                        slide_creator = SlideCreator()
-                        images = []
+                        if "1920" in resolution:
+                            width, height = 1920, 1080
+                        else:
+                            width, height = 1280, 720
                         
-                        progress_bar = st.progress(0)
-                        status_text = st.empty()
+                        video_creator = VideoCreator(resolution=(width, height), fps=24)
                         
-                        total_scenes = len(st.session_state.scenes)
+                        output_filename = video_name + ".mp4"
+                        output_path = os.path.join(tempfile.gettempdir(), output_filename)
                         
-                        for idx, scene in enumerate(st.session_state.scenes):
-                            progress = (idx / total_scenes) * 100
-                            progress_bar.progress(int(progress))
-                            status_text.text("Creating scene " + str(idx + 1) + "/" + str(total_scenes))
-                            
-                            if scene['type'] == 'text':
-                                img = slide_creator.create_text_slide(
-                                    scene.get('content', ''),
-                                    width=width,
-                                    height=height
-                                )
-                            elif scene['type'] == 'bullets':
-                                img = slide_creator.create_bullet_slide(
-                                    scene.get('title', ''),
-                                    scene.get('bullets', []),
-                                    width=width,
-                                    height=height
-                                )
-                            elif scene['type'] == 'chart':
-                                img = slide_creator.create_chart_slide(
-                                    scene.get('title', ''),
-                                    scene.get('data', {}),
-                                    width=width,
-                                    height=height
-                                )
-                            else:
-                                img = slide_creator.create_text_slide(
-                                    "Scene " + str(idx + 1),
-                                    width=width,
-                                    height=height
-                                )
-                            
-                            images.append(img)
+                        video_creator.create_video(
+                            st.session_state.scenes,
+                            output_path,
+                            lang=lang,
+                            duration_per_scene=duration_per_scene
+                        )
                         
-                        progress_bar.progress(100)
-                        status_text.text("Slides generated successfully!")
-                        
-                        zip_path = os.path.join(tempfile.gettempdir(), video_name + ".zip")
-                        
-                        with zipfile.ZipFile(zip_path, 'w') as zipf:
-                            for i, img in enumerate(images):
-                                img_path = os.path.join(tempfile.gettempdir(), "slide_" + str(i) + ".png")
-                                img.save(img_path)
-                                zipf.write(img_path, "slide_" + str(i) + ".png")
-                                os.remove(img_path)
-                        
-                        st.session_state.video_path = zip_path
+                        st.session_state.video_path = output_path
                         st.session_state.video_generated = True
                         
-                        st.success("Slides generated successfully! Download the ZIP file below.")
+                        st.success("✅ Video generated successfully!")
                         
                     except Exception as e:
-                        st.error("Error generating slides: " + str(e))
+                        st.error("Error generating video: " + str(e))
                         st.exception(e)
             
             if st.session_state.video_generated and st.session_state.video_path:
@@ -586,20 +710,22 @@ def main():
                 
                 try:
                     with open(st.session_state.video_path, 'rb') as f:
-                        zip_bytes = f.read()
+                        video_bytes = f.read()
                     
-                    st.download_button(
-                        label="Download Slides (ZIP)",
-                        data=zip_bytes,
-                        file_name=video_name + ".zip",
-                        mime="application/zip",
-                        use_container_width=True
-                    )
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    with col2:
+                        st.download_button(
+                            label="📥 Download MP4 Video",
+                            data=video_bytes,
+                            file_name=video_name + ".mp4",
+                            mime="video/mp4",
+                            use_container_width=True
+                        )
                     
-                    st.info("You can use these images to create a video with any video editing software.")
+                    st.video(st.session_state.video_path)
                     
                 except Exception as e:
-                    st.error("Error loading file: " + str(e))
+                    st.error("Error loading video: " + str(e))
 
 if __name__ == "__main__":
     main()
