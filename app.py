@@ -11,19 +11,30 @@ import random
 import base64
 import subprocess
 import sys
+import time
 
-# Try to import required libraries
+# Check and install required packages
+def install_package(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
 try:
     from gtts import gTTS
 except ImportError:
-    st.error("gTTS not installed. Please install it.")
-    st.stop()
+    install_package("gtts")
+    from gtts import gTTS
 
 try:
-    from moviepy.editor import *
+    import cv2
 except ImportError:
-    st.error("moviepy not installed. Please install it.")
-    st.stop()
+    install_package("opencv-python-headless")
+    import cv2
+
+# Try to use ffmpeg-python if available
+try:
+    import ffmpeg
+except ImportError:
+    install_package("ffmpeg-python")
+    import ffmpeg
 
 st.set_page_config(
     page_title="AI Explainer Video Generator",
@@ -255,22 +266,23 @@ class ScriptParser:
         return scenes
 
 class VideoCreator:
-    def __init__(self, resolution=(1920, 1080), fps=24):
+    def __init__(self, resolution=(1280, 720), fps=24):
         self.resolution = resolution
         self.fps = fps
         self.image_gen = FreeImageGenerator()
         self.temp_dir = tempfile.mkdtemp()
         
-    def create_text_slide(self, text, bg_color='#1a237e', text_color='#ffffff', width=1920, height=1080):
+    def create_text_slide(self, text, bg_color='#1a237e', text_color='#ffffff', width=1280, height=720):
         bg_rgb = tuple(int(bg_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
         img = Image.new('RGB', (width, height), color=bg_rgb)
         draw = ImageDraw.Draw(img)
         
         try:
-            font = ImageFont.truetype("arial.ttf", 80)
+            font_size = 60 if width > 1000 else 40
+            font = ImageFont.truetype("arial.ttf", font_size)
         except:
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 80)
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
             except:
                 font = ImageFont.load_default()
         
@@ -288,18 +300,19 @@ class VideoCreator:
         if current_line:
             lines.append(' '.join(current_line))
         
-        y_offset = (height - len(lines) * 90) // 2
+        line_height = font_size + 20
+        y_offset = (height - len(lines) * line_height) // 2
         text_rgb = tuple(int(text_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             x = (width - bbox[2]) // 2
-            draw.text((x+3, y_offset+3), line, fill='black', font=font)
+            draw.text((x+2, y_offset+2), line, fill='black', font=font)
             draw.text((x, y_offset), line, fill=text_rgb, font=font)
-            y_offset += 90
+            y_offset += line_height
         
         return img
     
-    def create_bullet_slide(self, title, bullets, width=1920, height=1080):
+    def create_bullet_slide(self, title, bullets, width=1280, height=720):
         img = self.image_gen.get_random_image("business", width, height)
         if img.size != (width, height):
             img = img.resize((width, height), Image.LANCZOS)
@@ -316,31 +329,33 @@ class VideoCreator:
         draw = ImageDraw.Draw(img)
         
         try:
-            title_font = ImageFont.truetype("arial.ttf", 90)
-            bullet_font = ImageFont.truetype("arial.ttf", 55)
+            title_size = 70 if width > 1000 else 50
+            bullet_size = 45 if width > 1000 else 30
+            title_font = ImageFont.truetype("arial.ttf", title_size)
+            bullet_font = ImageFont.truetype("arial.ttf", bullet_size)
         except:
             try:
-                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 90)
-                bullet_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 55)
+                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", title_size)
+                bullet_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", bullet_size)
             except:
                 title_font = ImageFont.load_default()
                 bullet_font = ImageFont.load_default()
         
         bbox = draw.textbbox((0, 0), title, font=title_font)
         x = (width - bbox[2]) // 2
-        draw.text((x, 80), title, fill='#FFD700', font=title_font)
+        draw.text((x, 60), title, fill='#FFD700', font=title_font)
         
-        y = 250
+        y = 180
         for point in bullets[:6]:
             bullet_text = "• " + point
             bbox = draw.textbbox((0, 0), bullet_text, font=bullet_font)
-            x = 150
+            x = 120
             draw.text((x, y), bullet_text, fill='white', font=bullet_font)
-            y += 80
+            y += bullet_size + 20
         
         return img
     
-    def create_chart_slide(self, title, data, width=1920, height=1080):
+    def create_chart_slide(self, title, data, width=1280, height=720):
         img = self.image_gen.get_random_image("finance", width, height)
         if img.size != (width, height):
             img = img.resize((width, height), Image.LANCZOS)
@@ -357,19 +372,21 @@ class VideoCreator:
         draw = ImageDraw.Draw(img)
         
         try:
-            title_font = ImageFont.truetype("arial.ttf", 70)
-            label_font = ImageFont.truetype("arial.ttf", 40)
+            title_size = 55 if width > 1000 else 40
+            label_size = 35 if width > 1000 else 25
+            title_font = ImageFont.truetype("arial.ttf", title_size)
+            label_font = ImageFont.truetype("arial.ttf", label_size)
         except:
             try:
-                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 70)
-                label_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
+                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", title_size)
+                label_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", label_size)
             except:
                 title_font = ImageFont.load_default()
                 label_font = ImageFont.load_default()
         
         bbox = draw.textbbox((0, 0), title, font=title_font)
         x = (width - bbox[2]) // 2
-        draw.text((x, 50), title, fill='#FFD700', font=title_font)
+        draw.text((x, 40), title, fill='#FFD700', font=title_font)
         
         if not data:
             data = {'No Data': 1}
@@ -378,25 +395,25 @@ class VideoCreator:
         if max_val == 0:
             max_val = 1
         
-        bar_width = min((width - 300) // len(data), 150)
-        x_start = (width - (bar_width * len(data) + 50 * (len(data) - 1))) // 2
-        y_base = height - 150
+        bar_width = min((width - 300) // len(data), 120)
+        x_start = (width - (bar_width * len(data) + 40 * (len(data) - 1))) // 2
+        y_base = height - 120
         
         colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F']
         
         for i, (label, value) in enumerate(data.items()):
-            bar_height = (value / max_val) * (height - 300)
+            bar_height = (value / max_val) * (height - 250)
             if bar_height < 10:
                 bar_height = 10
-            x = x_start + i * (bar_width + 50)
+            x = x_start + i * (bar_width + 40)
             color = colors[i % len(colors)]
             
             draw.rectangle([x, y_base - bar_height, x + bar_width, y_base], fill=color)
-            draw.text((x + bar_width//2 - 20, y_base - bar_height - 40), 
+            draw.text((x + bar_width//2 - 15, y_base - bar_height - 35), 
                      str(int(value)), fill='white', font=label_font)
             
             bbox = draw.textbbox((0, 0), label, font=label_font)
-            draw.text((x + (bar_width - bbox[2])//2, y_base + 20), 
+            draw.text((x + (bar_width - bbox[2])//2, y_base + 15), 
                      label, fill='white', font=label_font)
         
         return img
@@ -413,62 +430,56 @@ class VideoCreator:
             st.error("Error generating voiceover: " + str(e))
             return None
     
-    def get_audio_duration(self, audio_path):
-        try:
-            audio = AudioFileClip(audio_path)
-            duration = audio.duration
-            audio.close()
-            return duration
-        except:
-            return 3.0
-    
-    def create_scene_clip(self, scene, duration, width=1920, height=1080):
-        scene_type = scene.get('type', 'text')
-        
-        if scene_type == 'text':
-            img = self.create_text_slide(
-                scene.get('content', ''),
-                width=width,
-                height=height
-            )
-        elif scene_type == 'bullets':
-            img = self.create_bullet_slide(
-                scene.get('title', ''),
-                scene.get('bullets', []),
-                width=width,
-                height=height
-            )
-        elif scene_type == 'chart':
-            img = self.create_chart_slide(
-                scene.get('title', ''),
-                scene.get('data', {}),
-                width=width,
-                height=height
-            )
-        else:
-            img = self.create_text_slide(
-                "Scene",
-                width=width,
-                height=height
-            )
-        
-        img_array = np.array(img)
-        clip = ImageClip(img_array).set_duration(duration)
-        return clip
-    
-    def create_video(self, scenes, output_path, lang='en', duration_per_scene=5):
-        video_clips = []
-        audio_clips = []
+    def create_video_ffmpeg(self, scenes, output_path, lang='en', duration_per_scene=5):
+        temp_files = []
+        video_parts = []
         
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         total_scenes = len(scenes)
         
+        # Create images and audio for each scene
         for idx, scene in enumerate(scenes):
             progress = (idx / total_scenes) * 100
             progress_bar.progress(int(progress))
             status_text.text("Processing scene " + str(idx + 1) + "/" + str(total_scenes))
+            
+            # Generate image
+            scene_type = scene.get('type', 'text')
+            width, height = self.resolution
+            
+            if scene_type == 'text':
+                img = self.create_text_slide(
+                    scene.get('content', ''),
+                    width=width,
+                    height=height
+                )
+            elif scene_type == 'bullets':
+                img = self.create_bullet_slide(
+                    scene.get('title', ''),
+                    scene.get('bullets', []),
+                    width=width,
+                    height=height
+                )
+            elif scene_type == 'chart':
+                img = self.create_chart_slide(
+                    scene.get('title', ''),
+                    scene.get('data', {}),
+                    width=width,
+                    height=height
+                )
+            else:
+                img = self.create_text_slide(
+                    "Scene",
+                    width=width,
+                    height=height
+                )
+            
+            # Save image
+            img_path = os.path.join(self.temp_dir, "scene_" + str(idx) + ".png")
+            img.save(img_path)
+            temp_files.append(img_path)
             
             # Generate voiceover
             voiceover_text = scene.get('voiceover', '')
@@ -476,51 +487,108 @@ class VideoCreator:
             
             if voiceover_text:
                 self.generate_voiceover(voiceover_text, audio_path, lang)
-                duration = self.get_audio_duration(audio_path)
-                if duration < 1:
+                if os.path.exists(audio_path):
+                    temp_files.append(audio_path)
+                    # Get audio duration
+                    try:
+                        import subprocess
+                        result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', audio_path], 
+                                               capture_output=True, text=True)
+                        duration = float(result.stdout.strip()) if result.stdout else duration_per_scene
+                    except:
+                        duration = duration_per_scene
+                else:
                     duration = duration_per_scene
             else:
                 duration = duration_per_scene
-                audio_path = None
             
-            # Create scene clip
-            clip = self.create_scene_clip(scene, duration)
-            
-            # Add audio if available
-            if audio_path and os.path.exists(audio_path):
-                try:
-                    audio = AudioFileClip(audio_path)
-                    clip = clip.set_audio(audio)
-                    audio_clips.append(audio)
-                except:
-                    pass
-            
-            video_clips.append(clip)
+            video_parts.append({'image': img_path, 'audio': audio_path if os.path.exists(audio_path) else None, 'duration': duration})
         
-        progress_bar.progress(90)
-        status_text.text("Rendering final video...")
+        progress_bar.progress(80)
+        status_text.text("Creating video with FFmpeg...")
         
-        if video_clips:
-            final_video = concatenate_videoclips(video_clips, method="compose")
+        # Create video using FFmpeg
+        try:
+            # Create a concat file for video segments
+            concat_file = os.path.join(self.temp_dir, "concat.txt")
+            with open(concat_file, 'w') as f:
+                for part in video_parts:
+                    f.write("file '" + part['image'] + "'\n")
+                    f.write("duration " + str(part['duration']) + "\n")
             
-            final_video.write_videofile(
-                output_path,
-                fps=self.fps,
-                codec='libx264',
-                audio_codec='aac',
-                threads=2,
-                verbose=False,
-                logger=None
-            )
+            # Build FFmpeg command
+            cmd = [
+                'ffmpeg', '-y',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', concat_file,
+                '-c:v', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-r', str(self.fps),
+                '-vf', 'scale=' + str(self.resolution[0]) + ':' + str(self.resolution[1]) + ':force_original_aspect_ratio=decrease,pad=' + str(self.resolution[0]) + ':' + str(self.resolution[1]) + ':(ow-iw)/2:(oh-ih)/2',
+                output_path
+            ]
             
-            final_video.close()
-            for clip in video_clips:
-                clip.close()
-            for audio in audio_clips:
-                audio.close()
+            # Run FFmpeg
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                st.error("FFmpeg error: " + result.stderr)
+                # Try alternative method with image sequence
+                return self.create_video_with_images(video_parts, output_path)
+            
+        except Exception as e:
+            st.warning("FFmpeg method failed, trying alternative...")
+            return self.create_video_with_images(video_parts, output_path)
         
         progress_bar.progress(100)
         status_text.text("Video generation complete!")
+        
+        # Cleanup
+        for file in temp_files:
+            try:
+                if os.path.exists(file):
+                    os.remove(file)
+            except:
+                pass
+        
+        return output_path
+    
+    def create_video_with_images(self, video_parts, output_path):
+        """Alternative method using image sequence"""
+        import subprocess
+        
+        # Create a temporary directory for frames
+        frames_dir = os.path.join(self.temp_dir, "frames")
+        os.makedirs(frames_dir, exist_ok=True)
+        
+        frame_count = 0
+        for part in video_parts:
+            img = Image.open(part['image'])
+            duration = part['duration']
+            frames = int(duration * self.fps)
+            
+            for i in range(frames):
+                frame_path = os.path.join(frames_dir, "frame_" + str(frame_count).zfill(6) + ".png")
+                img.save(frame_path)
+                frame_count += 1
+        
+        # Create video from frames
+        cmd = [
+            'ffmpeg', '-y',
+            '-framerate', str(self.fps),
+            '-i', os.path.join(frames_dir, "frame_%06d.png"),
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-vf', 'scale=' + str(self.resolution[0]) + ':' + str(self.resolution[1]) + ':force_original_aspect_ratio=decrease,pad=' + str(self.resolution[0]) + ':' + str(self.resolution[1]) + ':(ow-iw)/2:(oh-ih)/2',
+            output_path
+        ]
+        
+        subprocess.run(cmd, capture_output=True)
+        
+        # Cleanup frames
+        import shutil
+        shutil.rmtree(frames_dir, ignore_errors=True)
         
         return output_path
 
@@ -539,7 +607,7 @@ def main():
         
         resolution = st.selectbox(
             "Video Quality",
-            ["1920x1080 (HD)", "1280x720 (SD)"],
+            ["1280x720 (HD)", "854x480 (SD)"],
             index=0
         )
         
@@ -549,6 +617,9 @@ def main():
             max_value=10,
             value=5
         )
+        
+        st.divider()
+        st.caption("Note: Videos are generated using FFmpeg")
     
     tab1, tab2, tab3 = st.tabs(["Script Input", "Scene Preview", "Generate Video"])
     
@@ -667,6 +738,8 @@ def main():
                 total_duration = len(st.session_state.scenes) * duration_per_scene
             st.info("📊 " + str(len(st.session_state.scenes)) + " scenes, estimated duration: " + str(int(total_duration)) + " seconds")
             
+            st.warning("⚠️ Video generation may take 1-3 minutes depending on the number of scenes.")
+            
             col1, col2 = st.columns([2, 1])
             with col1:
                 video_name = st.text_input(
@@ -678,27 +751,29 @@ def main():
                 st.write("")
                 if st.button("🎬 Generate MP4 Video", type="primary", use_container_width=True):
                     try:
-                        if "1920" in resolution:
-                            width, height = 1920, 1080
-                        else:
+                        if "1280" in resolution:
                             width, height = 1280, 720
+                        else:
+                            width, height = 854, 480
                         
                         video_creator = VideoCreator(resolution=(width, height), fps=24)
                         
                         output_filename = video_name + ".mp4"
                         output_path = os.path.join(tempfile.gettempdir(), output_filename)
                         
-                        video_creator.create_video(
+                        video_creator.create_video_ffmpeg(
                             st.session_state.scenes,
                             output_path,
                             lang=lang,
                             duration_per_scene=duration_per_scene
                         )
                         
-                        st.session_state.video_path = output_path
-                        st.session_state.video_generated = True
-                        
-                        st.success("✅ Video generated successfully!")
+                        if os.path.exists(output_path):
+                            st.session_state.video_path = output_path
+                            st.session_state.video_generated = True
+                            st.success("✅ Video generated successfully!")
+                        else:
+                            st.error("Video generation failed. Please try again.")
                         
                     except Exception as e:
                         st.error("Error generating video: " + str(e))
