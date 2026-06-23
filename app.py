@@ -17,7 +17,7 @@ if st.button("🔄 Analyze Script", use_container_width=True):
 
 with col2:
 if st.button("🗑️ Clear Script", use_container_width=True):
-    st.session_state['script_input'] = ""
+    st.session_state.script_input = ""
     st.session_state.scenes = []
     st.session_state.auto_generated = False
     st.rerun()
