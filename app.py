@@ -72,10 +72,6 @@ class FreeImageGenerator:
     """Generate free images using various APIs"""
     
     def __init__(self):
-        # Free stock photo APIs (no API key needed)
-        self.unsplash_url = "https://api.unsplash.com/photos/random"
-        self.picsum_url = "https://picsum.photos"
-        # Keywords for different topics
         self.topic_keywords = {
             'technology': ['technology', 'computer', 'digital', 'coding', 'ai'],
             'business': ['business', 'office', 'meeting', 'team', 'corporate'],
@@ -90,7 +86,6 @@ class FreeImageGenerator:
     def get_random_image(self, keyword="nature", width=1920, height=1080):
         """Get a free stock image based on keyword"""
         try:
-            # Try picsum first (always works)
             url = f"https://picsum.photos/seed/{random.randint(1, 1000)}/{width}/{height}"
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
@@ -100,7 +95,6 @@ class FreeImageGenerator:
             pass
         
         try:
-            # Try unsplash (limited, no API key for demo)
             url = f"https://source.unsplash.com/featured/{width}x{height}/?{keyword}"
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
@@ -109,7 +103,6 @@ class FreeImageGenerator:
         except:
             pass
         
-        # Fallback: Create a gradient image
         return self.create_gradient_image(width, height)
     
     def create_gradient_image(self, width, height):
@@ -130,7 +123,7 @@ class FreeImageGenerator:
             for keyword in keywords:
                 if keyword in text_lower:
                     return keyword
-        return "nature"  # Default
+        return "nature"
 
 # ============ FREE VIDEO GENERATION ============
 class FreeVideoGenerator:
@@ -144,14 +137,11 @@ class FreeVideoGenerator:
         if image is None:
             image = self.image_gen.get_random_image("nature", width, height)
         
-        # Resize image if needed
         if image.size != (width, height):
             image = image.resize((width, height), Image.LANCZOS)
         
-        # Add text overlay
         draw = ImageDraw.Draw(image)
         
-        # Load font
         try:
             font = ImageFont.truetype("arial.ttf", 60)
         except:
@@ -160,11 +150,7 @@ class FreeVideoGenerator:
             except:
                 font = ImageFont.load_default()
         
-        # Create semi-transparent overlay for text
-        overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        overlay_draw = ImageDraw.Draw(overlay)
-        
-        # Draw text with word wrap
+        # Word wrap
         words = text.split()
         lines = []
         current_line = []
@@ -179,47 +165,36 @@ class FreeVideoGenerator:
         if current_line:
             lines.append(' '.join(current_line))
         
-        # Draw text with shadow for readability
         y_offset = (height - len(lines) * 70) // 2
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
             x = (width - bbox[2]) // 2
-            
-            # Text shadow
             draw.text((x+2, y_offset+2), line, fill='black', font=font)
             draw.text((x, y_offset), line, fill='white', font=font)
             y_offset += 70
         
-        # Convert to clip
         img_array = np.array(image)
         clip = ImageClip(img_array).set_duration(duration)
         return clip
     
     def create_bullet_slide(self, title, bullets, duration=3, width=1920, height=1080):
         """Create a bullet point slide with background"""
-        # Use image background
         image = self.image_gen.get_random_image("business", width, height)
         
         if image.size != (width, height):
             image = image.resize((width, height), Image.LANCZOS)
         
-        # Create semi-transparent overlay
         overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        overlay_draw = ImageDraw.Draw(overlay)
-        
-        # Add dark overlay for readability
         for x in range(width):
             for y in range(height):
                 overlay.putpixel((x, y), (0, 0, 0, 150))
         
-        # Composite overlay with background
         image = image.convert('RGBA')
         image = Image.alpha_composite(image, overlay)
         image = image.convert('RGB')
         
         draw = ImageDraw.Draw(image)
         
-        # Load fonts
         try:
             title_font = ImageFont.truetype("arial.ttf", 70)
             bullet_font = ImageFont.truetype("arial.ttf", 45)
@@ -231,12 +206,10 @@ class FreeVideoGenerator:
                 title_font = ImageFont.load_default()
                 bullet_font = ImageFont.load_default()
         
-        # Draw title
         bbox = draw.textbbox((0, 0), title, font=title_font)
         x = (width - bbox[2]) // 2
         draw.text((x, 80), title, fill='#FFD700', font=title_font)
         
-        # Draw bullets
         y = 200
         for point in bullets[:6]:
             bullet_text = f"• {point}"
@@ -251,13 +224,11 @@ class FreeVideoGenerator:
     
     def create_chart_slide(self, title, data, duration=3, width=1920, height=1080):
         """Create a chart slide with background"""
-        # Use image background
         image = self.image_gen.get_random_image("finance", width, height)
         
         if image.size != (width, height):
             image = image.resize((width, height), Image.LANCZOS)
         
-        # Create semi-transparent overlay
         overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         for x in range(width):
             for y in range(height):
@@ -269,7 +240,6 @@ class FreeVideoGenerator:
         
         draw = ImageDraw.Draw(image)
         
-        # Load fonts
         try:
             title_font = ImageFont.truetype("arial.ttf", 60)
             label_font = ImageFont.truetype("arial.ttf", 35)
@@ -281,12 +251,10 @@ class FreeVideoGenerator:
                 title_font = ImageFont.load_default()
                 label_font = ImageFont.load_default()
         
-        # Draw title
         bbox = draw.textbbox((0, 0), title, font=title_font)
         x = (width - bbox[2]) // 2
         draw.text((x, 50), title, fill='#FFD700', font=title_font)
         
-        # Draw bars
         if not data:
             data = {'No Data': 1}
         
@@ -307,14 +275,10 @@ class FreeVideoGenerator:
             x = x_start + i * (bar_width + 50)
             color = colors[i % len(colors)]
             
-            # Draw bar
             draw.rectangle([x, y_base - bar_height, x + bar_width, y_base], fill=color)
-            
-            # Draw value
             draw.text((x + bar_width//2 - 15, y_base - bar_height - 30), 
                      str(int(value)), fill='white', font=label_font)
             
-            # Draw label
             bbox = draw.textbbox((0, 0), label, font=label_font)
             draw.text((x + (bar_width - bbox[2])//2, y_base + 10), 
                      label, fill='white', font=label_font)
@@ -342,16 +306,13 @@ class ScriptParser:
             if not line:
                 continue
             
-            # Detect scene types
             if line.startswith('#'):
-                # Title/header scene
                 scenes.append({
                     'type': 'text',
                     'content': line.lstrip('#').strip(),
                     'voiceover': line.lstrip('#').strip()
                 })
             elif line.startswith('-'):
-                # Bullet point
                 if current_scene and current_scene['type'] == 'bullets':
                     current_scene['bullets'].append(line.lstrip('- ').strip())
                     current_scene['voiceover'] += ". " + line.lstrip('- ').strip()
@@ -365,7 +326,6 @@ class ScriptParser:
                         'voiceover': line.lstrip('- ').strip()
                     }
             elif ':' in line and any(word in line.lower() for word in ['chart', 'data', 'graph']):
-                # Chart scene
                 parts = line.split(':')
                 if len(parts) == 2:
                     title = parts[0].strip()
@@ -387,7 +347,6 @@ class ScriptParser:
                     except:
                         pass
             else:
-                # Regular text - add as text scene
                 if current_scene and current_scene['type'] != 'text':
                     scenes.append(current_scene)
                     current_scene = None
@@ -407,9 +366,7 @@ class ScriptParser:
         """Generate scenes intelligently from script"""
         scenes = self.parse_script(script_text)
         
-        # If no scenes parsed, create default ones
         if not scenes:
-            # Split script into sentences
             sentences = re.split(r'[.!?]+', script_text)
             sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
             
@@ -421,7 +378,6 @@ class ScriptParser:
                         'voiceover': sentence
                     })
                 elif i % 3 == 1:
-                    # Create bullet points from sentence
                     words = sentence.split()
                     bullets = [' '.join(words[i:i+3]) for i in range(0, len(words), 3)]
                     bullets = [b for b in bullets if len(b) > 5][:5]
@@ -432,7 +388,6 @@ class ScriptParser:
                         'voiceover': sentence
                     })
                 else:
-                    # Create chart from numbers in text
                     numbers = re.findall(r'\d+', sentence)
                     if numbers:
                         data = {f"Item{i+1}": int(n) for i, n in enumerate(numbers[:6])}
@@ -527,7 +482,6 @@ class AutoVideoMaker:
         """Generate complete video from script text"""
         st.info("🔍 Analyzing your script...")
         
-        # Parse script into scenes
         scenes = self.parser.auto_generate_scenes(script_text)
         
         if not scenes:
@@ -538,36 +492,29 @@ class AutoVideoMaker:
         
         video_clips = []
         
-        # Create progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         total_scenes = len(scenes)
         
         for idx, scene in enumerate(scenes):
-            # Update progress
             progress = (idx / total_scenes) * 100
             progress_bar.progress(int(progress))
             status_text.text(f"🎬 Creating scene {idx + 1}/{total_scenes}: {scene.get('type', 'unknown')}")
             
-            # Generate voiceover
             voiceover_text = scene.get('voiceover', '')
             audio_path = os.path.join(self.temp_dir, f"audio_{idx}.mp3")
             self.generate_voiceover(voiceover_text, audio_path, lang)
             
-            # Get audio duration
             duration = self.get_audio_duration(audio_path)
             
-            # Create visual
             clip = self.create_scene_visual(scene, duration)
             
-            # Add audio
             audio = AudioFileClip(audio_path)
             clip = clip.set_audio(audio)
             
             video_clips.append(clip)
         
-        # Final rendering
         progress_bar.progress(90)
         status_text.text("🎞️ Rendering final video...")
         
@@ -591,7 +538,6 @@ class AutoVideoMaker:
         progress_bar.progress(100)
         status_text.text("✅ Video generation complete!")
         
-        # Store scenes for preview
         st.session_state.scenes = scenes
         st.session_state.auto_generated = True
         
@@ -617,14 +563,12 @@ def main():
     with st.sidebar:
         st.header("⚙️ Settings")
         
-        # Language selection
         lang = st.selectbox(
             "Voiceover Language",
             ["en", "es", "fr", "de", "it", "pt", "ja", "zh", "hi"],
             index=0
         )
         
-        # Resolution
         resolution = st.selectbox(
             "Video Quality",
             ["1920x1080 (HD)", "1280x720 (SD)", "854x480 (Low)"],
@@ -633,74 +577,67 @@ def main():
         
         st.divider()
         
-        # Sample scripts
         st.subheader("📝 Sample Scripts")
         
         if st.button("📊 Business Script"):
-            sample = """
-            # Welcome to Our Business Explainer
+            sample = """# Welcome to Our Business Explainer
             
-            In today's competitive market, businesses need to adapt and innovate.
-            
-            Key strategies for success:
-            - Customer-centric approach
-            - Digital transformation
-            - Data-driven decisions
-            - Continuous innovation
-            
-            Our approach has shown remarkable results:
-            Customer satisfaction: 95%
-            Revenue growth: 150%
-            Market share: 35%
-            Employee engagement: 90%
-            
-            # Join us in transforming your business
-            """
+In today's competitive market, businesses need to adapt and innovate.
+
+Key strategies for success:
+- Customer-centric approach
+- Digital transformation
+- Data-driven decisions
+- Continuous innovation
+
+Our approach has shown remarkable results:
+Customer satisfaction: 95%
+Revenue growth: 150%
+Market share: 35%
+Employee engagement: 90%
+
+# Join us in transforming your business"""
             st.session_state['script_input'] = sample
             st.rerun()
         
         if st.button("🔬 Science Script"):
-            sample = """
-            # The Future of Science
+            sample = """# The Future of Science
             
-            Science is advancing at an unprecedented pace.
-            
-            Breakthrough technologies:
-            - Artificial Intelligence
-            - Gene Editing
-            - Quantum Computing
-            - Renewable Energy
-            
-            Impact on society:
-            Healthcare: 85%
-            Environment: 70%
-            Education: 65%
-            Economy: 90%
-            
-            # A brighter future through science
-            """
+Science is advancing at an unprecedented pace.
+
+Breakthrough technologies:
+- Artificial Intelligence
+- Gene Editing
+- Quantum Computing
+- Renewable Energy
+
+Impact on society:
+Healthcare: 85%
+Environment: 70%
+Education: 65%
+Economy: 90%
+
+# A brighter future through science"""
             st.session_state['script_input'] = sample
             st.rerun()
         
         if st.button("🎓 Education Script"):
-            sample = """
-            # Learn Anywhere, Anytime
+            sample = """# Learn Anywhere, Anytime
             
-            Education is evolving with technology.
-            
-            Modern learning methods:
-            - Online courses
-            - Interactive content
-            - AI tutors
-            - Collaborative projects
-            
-            Student success rates:
-            Online: 88%
-            Traditional: 75%
-            Blended: 92%
-            
-            # Empowering learners worldwide
-            """
+Education is evolving with technology.
+
+Modern learning methods:
+- Online courses
+- Interactive content
+- AI tutors
+- Collaborative projects
+
+Student success rates:
+Online: 88%
+Traditional: 75%
+Blended: 92%
+
+# Empowering learners worldwide"""
             st.session_state['script_input'] = sample
             st.rerun()
     
@@ -733,7 +670,6 @@ Cost savings: 70%
             help="Use # for titles, - for bullet points, and key=value for charts"
         )
         
-        # Script tips
         with st.expander("📖 Script Writing Tips"):
             st.markdown("""
             ### How to Write Your Script
