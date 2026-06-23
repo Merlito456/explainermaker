@@ -1,4 +1,5 @@
-""")
+"""
+st.markdown(tips_html)
 
 st.divider()
 
@@ -100,11 +101,13 @@ with col2:
 
 if st.session_state.video_generated and st.session_state.video_path:
     st.divider()
-    st.markdown("""
+    
+    success_html = """
     <div class="success-box">
     <h3>✅ Your Video is Ready!</h3>
     </div>
-    """, unsafe_allow_html=True)
+    """
+    st.markdown(success_html, unsafe_allow_html=True)
     
     try:
         with open(st.session_state.video_path, 'rb') as f:
