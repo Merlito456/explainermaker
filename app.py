@@ -3,13 +3,20 @@ import json
 import os
 import tempfile
 from datetime import datetime
-import subprocess
-import sys
-import base64
+import time
+import requests
+from gtts import gTTS
+from pydub import AudioSegment
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+from moviepy.editor import *
+import re
+from io import BytesIO
+import random
 
 # ============ PAGE CONFIG ============
 st.set_page_config(
-    page_title="AI Explainer Video Generator",
+    page_title="AI Auto Explainer Video Generator",
     page_icon="🎬",
     layout="wide"
 )
@@ -26,18 +33,26 @@ st.markdown("""
     .stButton > button {
         width: 100%;
     }
-    .scene-card {
-        background-color: #f8f9fa;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid #FF4B4B;
-    }
     .info-box {
         background-color: #e3f2fd;
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 1rem 0;
+        border-left: 4px solid #2196F3;
+    }
+    .success-box {
+        background-color: #d4edda;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        border-left: 4px solid #28a745;
+    }
+    .scene-preview {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        border: 1px solid #dee2e6;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -49,334 +64,691 @@ if 'video_generated' not in st.session_state:
     st.session_state.video_generated = False
 if 'video_path' not in st.session_state:
     st.session_state.video_path = None
-if 'rendering' not in st.session_state:
-    st.session_state.rendering = False
+if 'auto_generated' not in st.session_state:
+    st.session_state.auto_generated = False
 
-# ============ VIDEO MAKER CLASS (Simplified) ============
-class SimpleVideoMaker:
-    """Simplified video maker using only built-in libraries"""
+# ============ FREE IMAGE GENERATION ============
+class FreeImageGenerator:
+    """Generate free images using various APIs"""
     
     def __init__(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.scenes = []
+        # Free stock photo APIs (no API key needed)
+        self.unsplash_url = "https://api.unsplash.com/photos/random"
+        self.picsum_url = "https://picsum.photos"
+        # Keywords for different topics
+        self.topic_keywords = {
+            'technology': ['technology', 'computer', 'digital', 'coding', 'ai'],
+            'business': ['business', 'office', 'meeting', 'team', 'corporate'],
+            'education': ['education', 'school', 'learning', 'book', 'study'],
+            'health': ['health', 'medical', 'doctor', 'hospital', 'wellness'],
+            'nature': ['nature', 'green', 'forest', 'ocean', 'mountain'],
+            'science': ['science', 'laboratory', 'research', 'experiment'],
+            'finance': ['finance', 'money', 'banking', 'investment'],
+            'creative': ['creative', 'design', 'art', 'innovation']
+        }
         
-    def create_text_slide(self, text, bg_color='#1a237e', text_color='#ffffff'):
-        """Create text slide using HTML/CSS"""
-        return {
-            'type': 'text',
-            'content': text,
-            'bg_color': bg_color,
-            'text_color': text_color
-        }
+    def get_random_image(self, keyword="nature", width=1920, height=1080):
+        """Get a free stock image based on keyword"""
+        try:
+            # Try picsum first (always works)
+            url = f"https://picsum.photos/seed/{random.randint(1, 1000)}/{width}/{height}"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                img = Image.open(BytesIO(response.content))
+                return img
+        except:
+            pass
+        
+        try:
+            # Try unsplash (limited, no API key for demo)
+            url = f"https://source.unsplash.com/featured/{width}x{height}/?{keyword}"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                img = Image.open(BytesIO(response.content))
+                return img
+        except:
+            pass
+        
+        # Fallback: Create a gradient image
+        return self.create_gradient_image(width, height)
     
-    def create_bullet_slide(self, title, bullets, bg_color='#2c3e50'):
-        """Create bullet slide"""
-        return {
-            'type': 'bullets',
-            'title': title,
-            'bullets': bullets,
-            'bg_color': bg_color
-        }
+    def create_gradient_image(self, width, height):
+        """Create a gradient background as fallback"""
+        img = Image.new('RGB', (width, height))
+        for x in range(width):
+            for y in range(height):
+                r = int(30 + (x / width) * 100)
+                g = int(40 + (y / height) * 100)
+                b = int(200 - (x / width) * 80)
+                img.putpixel((x, y), (r, g, b))
+        return img
     
-    def create_chart_slide(self, title, data):
-        """Create chart slide"""
-        return {
-            'type': 'chart',
-            'title': title,
-            'data': data
-        }
+    def get_relevant_keyword(self, text):
+        """Extract relevant keyword from text"""
+        text_lower = text.lower()
+        for topic, keywords in self.topic_keywords.items():
+            for keyword in keywords:
+                if keyword in text_lower:
+                    return keyword
+        return "nature"  # Default
+
+# ============ FREE VIDEO GENERATION ============
+class FreeVideoGenerator:
+    """Generate video clips using free resources"""
+    
+    def __init__(self):
+        self.image_gen = FreeImageGenerator()
+        
+    def create_text_with_image(self, text, image=None, duration=3, width=1920, height=1080):
+        """Create a slide with text overlay on image"""
+        if image is None:
+            image = self.image_gen.get_random_image("nature", width, height)
+        
+        # Resize image if needed
+        if image.size != (width, height):
+            image = image.resize((width, height), Image.LANCZOS)
+        
+        # Add text overlay
+        draw = ImageDraw.Draw(image)
+        
+        # Load font
+        try:
+            font = ImageFont.truetype("arial.ttf", 60)
+        except:
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 60)
+            except:
+                font = ImageFont.load_default()
+        
+        # Create semi-transparent overlay for text
+        overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        
+        # Draw text with word wrap
+        words = text.split()
+        lines = []
+        current_line = []
+        for word in words:
+            current_line.append(word)
+            test_line = ' '.join(current_line)
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            if bbox[2] > width - 100:
+                current_line.pop()
+                lines.append(' '.join(current_line))
+                current_line = [word]
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        # Draw text with shadow for readability
+        y_offset = (height - len(lines) * 70) // 2
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            x = (width - bbox[2]) // 2
+            
+            # Text shadow
+            draw.text((x+2, y_offset+2), line, fill='black', font=font)
+            draw.text((x, y_offset), line, fill='white', font=font)
+            y_offset += 70
+        
+        # Convert to clip
+        img_array = np.array(image)
+        clip = ImageClip(img_array).set_duration(duration)
+        return clip
+    
+    def create_bullet_slide(self, title, bullets, duration=3, width=1920, height=1080):
+        """Create a bullet point slide with background"""
+        # Use image background
+        image = self.image_gen.get_random_image("business", width, height)
+        
+        if image.size != (width, height):
+            image = image.resize((width, height), Image.LANCZOS)
+        
+        # Create semi-transparent overlay
+        overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        
+        # Add dark overlay for readability
+        for x in range(width):
+            for y in range(height):
+                overlay.putpixel((x, y), (0, 0, 0, 150))
+        
+        # Composite overlay with background
+        image = image.convert('RGBA')
+        image = Image.alpha_composite(image, overlay)
+        image = image.convert('RGB')
+        
+        draw = ImageDraw.Draw(image)
+        
+        # Load fonts
+        try:
+            title_font = ImageFont.truetype("arial.ttf", 70)
+            bullet_font = ImageFont.truetype("arial.ttf", 45)
+        except:
+            try:
+                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 70)
+                bullet_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 45)
+            except:
+                title_font = ImageFont.load_default()
+                bullet_font = ImageFont.load_default()
+        
+        # Draw title
+        bbox = draw.textbbox((0, 0), title, font=title_font)
+        x = (width - bbox[2]) // 2
+        draw.text((x, 80), title, fill='#FFD700', font=title_font)
+        
+        # Draw bullets
+        y = 200
+        for point in bullets[:6]:
+            bullet_text = f"• {point}"
+            bbox = draw.textbbox((0, 0), bullet_text, font=bullet_font)
+            x = 150
+            draw.text((x, y), bullet_text, fill='white', font=bullet_font)
+            y += 70
+        
+        img_array = np.array(image)
+        clip = ImageClip(img_array).set_duration(duration)
+        return clip
+    
+    def create_chart_slide(self, title, data, duration=3, width=1920, height=1080):
+        """Create a chart slide with background"""
+        # Use image background
+        image = self.image_gen.get_random_image("finance", width, height)
+        
+        if image.size != (width, height):
+            image = image.resize((width, height), Image.LANCZOS)
+        
+        # Create semi-transparent overlay
+        overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        for x in range(width):
+            for y in range(height):
+                overlay.putpixel((x, y), (0, 0, 0, 100))
+        
+        image = image.convert('RGBA')
+        image = Image.alpha_composite(image, overlay)
+        image = image.convert('RGB')
+        
+        draw = ImageDraw.Draw(image)
+        
+        # Load fonts
+        try:
+            title_font = ImageFont.truetype("arial.ttf", 60)
+            label_font = ImageFont.truetype("arial.ttf", 35)
+        except:
+            try:
+                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 60)
+                label_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 35)
+            except:
+                title_font = ImageFont.load_default()
+                label_font = ImageFont.load_default()
+        
+        # Draw title
+        bbox = draw.textbbox((0, 0), title, font=title_font)
+        x = (width - bbox[2]) // 2
+        draw.text((x, 50), title, fill='#FFD700', font=title_font)
+        
+        # Draw bars
+        if not data:
+            data = {'No Data': 1}
+        
+        max_val = max(data.values()) if data else 1
+        if max_val == 0:
+            max_val = 1
+        
+        bar_width = min((width - 300) // len(data), 120)
+        x_start = (width - (bar_width * len(data) + 50 * (len(data) - 1))) // 2
+        y_base = height - 150
+        
+        colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9']
+        
+        for i, (label, value) in enumerate(data.items()):
+            bar_height = (value / max_val) * (height - 300)
+            if bar_height < 10:
+                bar_height = 10
+            x = x_start + i * (bar_width + 50)
+            color = colors[i % len(colors)]
+            
+            # Draw bar
+            draw.rectangle([x, y_base - bar_height, x + bar_width, y_base], fill=color)
+            
+            # Draw value
+            draw.text((x + bar_width//2 - 15, y_base - bar_height - 30), 
+                     str(int(value)), fill='white', font=label_font)
+            
+            # Draw label
+            bbox = draw.textbbox((0, 0), label, font=label_font)
+            draw.text((x + (bar_width - bbox[2])//2, y_base + 10), 
+                     label, fill='white', font=label_font)
+        
+        img_array = np.array(image)
+        clip = ImageClip(img_array).set_duration(duration)
+        return clip
+
+# ============ SCRIPT PARSER ============
+class ScriptParser:
+    """Parse user script into scenes automatically"""
+    
+    def __init__(self):
+        self.scenes = []
+        self.video_gen = FreeVideoGenerator()
+        
+    def parse_script(self, script_text):
+        """Convert script text into video scenes"""
+        lines = script_text.strip().split('\n')
+        scenes = []
+        current_scene = None
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Detect scene types
+            if line.startswith('#'):
+                # Title/header scene
+                scenes.append({
+                    'type': 'text',
+                    'content': line.lstrip('#').strip(),
+                    'voiceover': line.lstrip('#').strip()
+                })
+            elif line.startswith('-'):
+                # Bullet point
+                if current_scene and current_scene['type'] == 'bullets':
+                    current_scene['bullets'].append(line.lstrip('- ').strip())
+                    current_scene['voiceover'] += ". " + line.lstrip('- ').strip()
+                else:
+                    if current_scene:
+                        scenes.append(current_scene)
+                    current_scene = {
+                        'type': 'bullets',
+                        'title': 'Key Points',
+                        'bullets': [line.lstrip('- ').strip()],
+                        'voiceover': line.lstrip('- ').strip()
+                    }
+            elif ':' in line and any(word in line.lower() for word in ['chart', 'data', 'graph']):
+                # Chart scene
+                parts = line.split(':')
+                if len(parts) == 2:
+                    title = parts[0].strip()
+                    data_str = parts[1].strip()
+                    try:
+                        data_items = data_str.split(',')
+                        data = {}
+                        for item in data_items:
+                            if '=' in item:
+                                k, v = item.split('=')
+                                data[k.strip()] = float(v.strip())
+                        scenes.append({
+                            'type': 'chart',
+                            'title': title,
+                            'data': data,
+                            'voiceover': f"Chart showing {title} with data: {data_str}"
+                        })
+                        current_scene = None
+                    except:
+                        pass
+            else:
+                # Regular text - add as text scene
+                if current_scene and current_scene['type'] != 'text':
+                    scenes.append(current_scene)
+                    current_scene = None
+                
+                scenes.append({
+                    'type': 'text',
+                    'content': line,
+                    'voiceover': line
+                })
+        
+        if current_scene:
+            scenes.append(current_scene)
+        
+        return scenes
+    
+    def auto_generate_scenes(self, script_text, num_scenes=5):
+        """Generate scenes intelligently from script"""
+        scenes = self.parse_script(script_text)
+        
+        # If no scenes parsed, create default ones
+        if not scenes:
+            # Split script into sentences
+            sentences = re.split(r'[.!?]+', script_text)
+            sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+            
+            for i, sentence in enumerate(sentences[:num_scenes]):
+                if i % 3 == 0:
+                    scenes.append({
+                        'type': 'text',
+                        'content': sentence,
+                        'voiceover': sentence
+                    })
+                elif i % 3 == 1:
+                    # Create bullet points from sentence
+                    words = sentence.split()
+                    bullets = [' '.join(words[i:i+3]) for i in range(0, len(words), 3)]
+                    bullets = [b for b in bullets if len(b) > 5][:5]
+                    scenes.append({
+                        'type': 'bullets',
+                        'title': f"Key Point {i+1}",
+                        'bullets': bullets,
+                        'voiceover': sentence
+                    })
+                else:
+                    # Create chart from numbers in text
+                    numbers = re.findall(r'\d+', sentence)
+                    if numbers:
+                        data = {f"Item{i+1}": int(n) for i, n in enumerate(numbers[:6])}
+                        scenes.append({
+                            'type': 'chart',
+                            'title': "Data Visualization",
+                            'data': data,
+                            'voiceover': sentence
+                        })
+                    else:
+                        scenes.append({
+                            'type': 'text',
+                            'content': sentence,
+                            'voiceover': sentence
+                        })
+        
+        return scenes
+
+# ============ VIDEO MAKER WITH AUTO CONTENT ============
+class AutoVideoMaker:
+    """Create videos with auto-generated content"""
+    
+    def __init__(self, resolution=(1920, 1080), fps=24):
+        self.resolution = resolution
+        self.fps = fps
+        self.temp_dir = tempfile.mkdtemp()
+        self.parser = ScriptParser()
+        self.video_gen = FreeVideoGenerator()
+        
+    def generate_voiceover(self, text, output_path, lang='en'):
+        """Generate voiceover using gTTS"""
+        try:
+            if not text or text.strip() == "":
+                silent = AudioSegment.silent(duration=2000)
+                silent.export(output_path, format="mp3")
+                return output_path
+            
+            tts = gTTS(text=text, lang=lang, slow=False)
+            tts.save(output_path)
+            return output_path
+        except Exception as e:
+            st.error(f"Error generating voiceover: {str(e)}")
+            silent = AudioSegment.silent(duration=3000)
+            silent.export(output_path, format="mp3")
+            return output_path
+    
+    def get_audio_duration(self, audio_path):
+        """Get audio duration in seconds"""
+        try:
+            audio = AudioSegment.from_mp3(audio_path)
+            return len(audio) / 1000.0
+        except:
+            return 3.0
+    
+    def create_scene_visual(self, scene, duration):
+        """Create visual for a scene based on its type"""
+        scene_type = scene.get('type', 'text')
+        width, height = self.resolution
+        
+        if scene_type == 'text':
+            return self.video_gen.create_text_with_image(
+                scene.get('content', ''),
+                duration=duration,
+                width=width,
+                height=height
+            )
+        elif scene_type == 'bullets':
+            return self.video_gen.create_bullet_slide(
+                scene.get('title', 'Key Points'),
+                scene.get('bullets', ['Point 1']),
+                duration=duration,
+                width=width,
+                height=height
+            )
+        elif scene_type == 'chart':
+            return self.video_gen.create_chart_slide(
+                scene.get('title', 'Data Chart'),
+                scene.get('data', {'A': 10, 'B': 20, 'C': 15}),
+                duration=duration,
+                width=width,
+                height=height
+            )
+        else:
+            return self.video_gen.create_text_with_image(
+                "Scene",
+                duration=duration,
+                width=width,
+                height=height
+            )
+    
+    def generate_video(self, script_text, output_path, lang='en'):
+        """Generate complete video from script text"""
+        st.info("🔍 Analyzing your script...")
+        
+        # Parse script into scenes
+        scenes = self.parser.auto_generate_scenes(script_text)
+        
+        if not scenes:
+            st.error("Could not parse script. Please check your input.")
+            return None
+        
+        st.success(f"✅ Generated {len(scenes)} scenes from your script")
+        
+        video_clips = []
+        
+        # Create progress tracking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        total_scenes = len(scenes)
+        
+        for idx, scene in enumerate(scenes):
+            # Update progress
+            progress = (idx / total_scenes) * 100
+            progress_bar.progress(int(progress))
+            status_text.text(f"🎬 Creating scene {idx + 1}/{total_scenes}: {scene.get('type', 'unknown')}")
+            
+            # Generate voiceover
+            voiceover_text = scene.get('voiceover', '')
+            audio_path = os.path.join(self.temp_dir, f"audio_{idx}.mp3")
+            self.generate_voiceover(voiceover_text, audio_path, lang)
+            
+            # Get audio duration
+            duration = self.get_audio_duration(audio_path)
+            
+            # Create visual
+            clip = self.create_scene_visual(scene, duration)
+            
+            # Add audio
+            audio = AudioFileClip(audio_path)
+            clip = clip.set_audio(audio)
+            
+            video_clips.append(clip)
+        
+        # Final rendering
+        progress_bar.progress(90)
+        status_text.text("🎞️ Rendering final video...")
+        
+        if video_clips:
+            final_video = concatenate_videoclips(video_clips, method="compose")
+            
+            final_video.write_videofile(
+                output_path,
+                fps=self.fps,
+                codec='libx264',
+                audio_codec='aac',
+                threads=4,
+                verbose=False,
+                logger=None
+            )
+            
+            final_video.close()
+            for clip in video_clips:
+                clip.close()
+        
+        progress_bar.progress(100)
+        status_text.text("✅ Video generation complete!")
+        
+        # Store scenes for preview
+        st.session_state.scenes = scenes
+        st.session_state.auto_generated = True
+        
+        return output_path
 
 # ============ MAIN APP ============
 def main():
     # Header
-    st.markdown('<h1 class="main-header">🎬 AI Explainer Video Generator</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🎬 AI Auto Explainer Video Generator</h1>', unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div class="info-box">
+    🤖 <b>Just provide your script - we'll do the rest!</b><br>
+    Our AI will automatically:
+    • Parse your script into scenes
+    • Generate relevant images for each scene
+    • Create voiceovers from your text
+    • Combine everything into a professional video
+    </div>
+    """, unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
-        st.header("📋 Quick Actions")
+        st.header("⚙️ Settings")
         
-        if st.button("📂 Load Example Script"):
-            st.session_state.scenes = [
-                {
-                    "type": "text",
-                    "content": "Welcome to AI Explainer!",
-                    "bg_color": "#1a237e",
-                    "text_color": "#ffffff",
-                    "voiceover": "Welcome to our AI Explainer video. Let's learn something new!"
-                },
-                {
-                    "type": "bullets",
-                    "title": "Key Concepts",
-                    "bullets": ["First concept", "Second concept", "Third concept"],
-                    "bg_color": "#2c3e50",
-                    "voiceover": "Here are the key concepts you need to understand."
-                },
-                {
-                    "type": "chart",
-                    "title": "Data Overview",
-                    "data": {"A": 10, "B": 20, "C": 15},
-                    "voiceover": "This chart shows our data distribution."
-                }
-            ]
-            st.rerun()
+        # Language selection
+        lang = st.selectbox(
+            "Voiceover Language",
+            ["en", "es", "fr", "de", "it", "pt", "ja", "zh", "hi"],
+            index=0
+        )
         
-        if st.button("🗑️ Clear All"):
-            st.session_state.scenes = []
-            st.session_state.video_generated = False
-            st.rerun()
+        # Resolution
+        resolution = st.selectbox(
+            "Video Quality",
+            ["1920x1080 (HD)", "1280x720 (SD)", "854x480 (Low)"],
+            index=0
+        )
         
         st.divider()
-        st.info("💡 **Tip:** Add scenes below to build your video script.")
+        
+        # Sample scripts
+        st.subheader("📝 Sample Scripts")
+        
+        if st.button("📊 Business Script"):
+            sample = """
+            # Welcome to Our Business Explainer
+            
+            In today's competitive market, businesses need to adapt and innovate.
+            
+            Key strategies for success:
+            - Customer-centric approach
+            - Digital transformation
+            - Data-driven decisions
+            - Continuous innovation
+            
+            Our approach has shown remarkable results:
+            Customer satisfaction: 95%
+            Revenue growth: 150%
+            Market share: 35%
+            Employee engagement: 90%
+            
+            # Join us in transforming your business
+            """
+            st.session_state['script_input'] = sample
+            st.rerun()
+        
+        if st.button("🔬 Science Script"):
+            sample = """
+            # The Future of Science
+            
+            Science is advancing at an unprecedented pace.
+            
+            Breakthrough technologies:
+            - Artificial Intelligence
+            - Gene Editing
+            - Quantum Computing
+            - Renewable Energy
+            
+            Impact on society:
+            Healthcare: 85%
+            Environment: 70%
+            Education: 65%
+            Economy: 90%
+            
+            # A brighter future through science
+            """
+            st.session_state['script_input'] = sample
+            st.rerun()
+        
+        if st.button("🎓 Education Script"):
+            sample = """
+            # Learn Anywhere, Anytime
+            
+            Education is evolving with technology.
+            
+            Modern learning methods:
+            - Online courses
+            - Interactive content
+            - AI tutors
+            - Collaborative projects
+            
+            Student success rates:
+            Online: 88%
+            Traditional: 75%
+            Blended: 92%
+            
+            # Empowering learners worldwide
+            """
+            st.session_state['script_input'] = sample
+            st.rerun()
     
-    # Main tabs
-    tab1, tab2, tab3 = st.tabs(["✏️ Script Editor", "👁️ Preview", "🎬 Generate"])
+    # Main content
+    tab1, tab2, tab3 = st.tabs(["✍️ Script Input", "👁️ Scene Preview", "🎬 Generate Video"])
     
-    # TAB 1: Script Editor
+    # TAB 1: Script Input
     with tab1:
-        st.subheader("Build Your Video Script")
+        st.subheader("Enter Your Script")
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("➕ Text Scene"):
-                st.session_state.scenes.append({
-                    "type": "text",
-                    "content": "Your text here",
-                    "bg_color": "#1a237e",
-                    "text_color": "#ffffff",
-                    "voiceover": "Voiceover for this scene"
-                })
-                st.rerun()
-        
-        with col2:
-            if st.button("➕ Bullet Scene"):
-                st.session_state.scenes.append({
-                    "type": "bullets",
-                    "title": "Key Points",
-                    "bullets": ["Point 1", "Point 2", "Point 3"],
-                    "bg_color": "#2c3e50",
-                    "voiceover": "Voiceover for this scene"
-                })
-                st.rerun()
-        
-        with col3:
-            if st.button("➕ Chart Scene"):
-                st.session_state.scenes.append({
-                    "type": "chart",
-                    "title": "Data Chart",
-                    "data": {"A": 10, "B": 20, "C": 15},
-                    "voiceover": "Voiceover for this scene"
-                })
-                st.rerun()
-        
-        st.divider()
-        
-        # Display scenes
-        if not st.session_state.scenes:
-            st.warning("No scenes added yet. Click the buttons above to add scenes.")
-        else:
-            for idx, scene in enumerate(st.session_state.scenes):
-                with st.expander(f"Scene {idx + 1}: {scene.get('type', 'unknown').title()}", expanded=True):
-                    col1, col2 = st.columns([3, 1])
-                    
-                    with col1:
-                        if scene['type'] == 'text':
-                            scene['content'] = st.text_area(
-                                "Text Content",
-                                value=scene.get('content', ''),
-                                key=f"text_{idx}"
-                            )
-                            scene['voiceover'] = st.text_area(
-                                "Voiceover Text",
-                                value=scene.get('voiceover', ''),
-                                key=f"voice_{idx}"
-                            )
-                            col_a, col_b = st.columns(2)
-                            with col_a:
-                                scene['bg_color'] = st.color_picker(
-                                    "Background Color",
-                                    value=scene.get('bg_color', '#1a237e'),
-                                    key=f"bg_{idx}"
-                                )
-                            with col_b:
-                                scene['text_color'] = st.color_picker(
-                                    "Text Color",
-                                    value=scene.get('text_color', '#ffffff'),
-                                    key=f"tc_{idx}"
-                                )
-                        
-                        elif scene['type'] == 'bullets':
-                            scene['title'] = st.text_input(
-                                "Title",
-                                value=scene.get('title', ''),
-                                key=f"btitle_{idx}"
-                            )
-                            bullets_text = st.text_area(
-                                "Bullets (one per line)",
-                                value='\n'.join(scene.get('bullets', [])),
-                                key=f"btext_{idx}"
-                            )
-                            scene['bullets'] = [b.strip() for b in bullets_text.split('\n') if b.strip()]
-                            scene['voiceover'] = st.text_area(
-                                "Voiceover Text",
-                                value=scene.get('voiceover', ''),
-                                key=f"bvoice_{idx}"
-                            )
-                            scene['bg_color'] = st.color_picker(
-                                "Background Color",
-                                value=scene.get('bg_color', '#2c3e50'),
-                                key=f"bbg_{idx}"
-                            )
-                        
-                        elif scene['type'] == 'chart':
-                            scene['title'] = st.text_input(
-                                "Chart Title",
-                                value=scene.get('title', ''),
-                                key=f"ctitle_{idx}"
-                            )
-                            chart_data = st.text_area(
-                                "Data (key:value, one per line)",
-                                value='\n'.join([f"{k}:{v}" for k, v in scene.get('data', {}).items()]),
-                                key=f"cdata_{idx}"
-                            )
-                            try:
-                                data_dict = {}
-                                for line in chart_data.strip().split('\n'):
-                                    if ':' in line:
-                                        k, v = line.split(':', 1)
-                                        data_dict[k.strip()] = float(v.strip())
-                                scene['data'] = data_dict
-                            except:
-                                st.error("Invalid data format. Use key:value format.")
-                            scene['voiceover'] = st.text_area(
-                                "Voiceover Text",
-                                value=scene.get('voiceover', ''),
-                                key=f"cvoice_{idx}"
-                            )
-                    
-                    with col2:
-                        st.write("")
-                        if st.button(f"🗑️ Delete", key=f"del_{idx}"):
-                            st.session_state.scenes.pop(idx)
-                            st.rerun()
-    
-    # TAB 2: Preview
-    with tab2:
-        st.subheader("Script Preview")
-        if not st.session_state.scenes:
-            st.info("Add scenes to see preview here.")
-        else:
-            for idx, scene in enumerate(st.session_state.scenes):
-                st.markdown(f"**Scene {idx + 1}**")
-                if scene['type'] == 'text':
-                    st.markdown(f"📝 {scene.get('content', '')}")
-                elif scene['type'] == 'bullets':
-                    st.markdown(f"📌 **{scene.get('title', '')}**")
-                    for bullet in scene.get('bullets', []):
-                        st.markdown(f"  • {bullet}")
-                elif scene['type'] == 'chart':
-                    st.markdown(f"📊 **{scene.get('title', '')}**")
-                    st.json(scene.get('data', {}))
-                st.caption(f"🎤 Voiceover: {scene.get('voiceover', '')[:100]}...")
-                st.divider()
-    
-    # TAB 3: Generate
-    with tab3:
-        st.subheader("Generate Video")
-        
-        # Display generation options
-        st.markdown("""
-        <div class="info-box">
-        ℹ️ This will generate a video with:
-        - Text-to-speech voiceover
-        - Visual slides with your content
-        - All scenes combined into one video
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if not st.session_state.scenes:
-            st.warning("Please add scenes before generating a video.")
-        else:
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                video_name = st.text_input(
-                    "Video Name",
-                    value=f"explainer_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                )
-            
-            if st.button("🚀 Generate Video", type="primary"):
-                st.session_state.rendering = True
-                st.info("🎬 Generating video... This may take a few minutes.")
-                
-                # Create a placeholder for progress
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                try:
-                    # Step 1: Prepare script
-                    status_text.text("📝 Preparing script...")
-                    progress_bar.progress(20)
-                    
-                    script_data = {"scenes": st.session_state.scenes}
-                    script_path = os.path.join(tempfile.gettempdir(), "script.json")
-                    with open(script_path, 'w') as f:
-                        json.dump(script_data, f, indent=2)
-                    
-                    # Step 2: Generate audio (simplified)
-                    status_text.text("🎤 Generating audio files...")
-                    progress_bar.progress(40)
-                    
-                    # Step 3: Create visuals (simplified)
-                    status_text.text("🖼️ Creating visuals...")
-                    progress_bar.progress(60)
-                    
-                    # Step 4: Combine everything
-                    status_text.text("🎬 Rendering final video...")
-                    progress_bar.progress(80)
-                    
-                    # Simulate processing time
-                    import time
-                    time.sleep(2)
-                    
-                    # Step 5: Generate a placeholder video info
-                    progress_bar.progress(100)
-                    status_text.text("✅ Video generation complete!")
-                    
-                    # Store success state
-                    st.session_state.video_generated = True
-                    st.session_state.video_path = "sample_video.mp4"
-                    st.session_state.rendering = False
-                    
-                    st.success("🎉 Video generated successfully!")
-                    
-                except Exception as e:
-                    st.error(f"❌ Error generating video: {str(e)}")
-                    st.session_state.rendering = False
-            
-            # Download section
-            if st.session_state.video_generated:
-                st.divider()
-                st.markdown("### 📥 Download Your Video")
-                
-                # Create a sample video download (simulated)
-                sample_video_data = """
-                This is a placeholder for your generated video.
-                In production, this would be your actual MP4 file.
-                """
-                
-                st.download_button(
-                    label="📥 Download Video (MP4)",
-                    data=sample_video_data.encode(),
-                    file_name=f"{video_name}.mp4",
-                    mime="video/mp4"
-                )
-                
-                st.info("📹 Your video is ready for download. Click the button above.")
-                
-                if st.button("🔄 Generate New Video"):
-                    st.session_state.video_generated = False
-                    st.session_state.video_path = None
-                    st.rerun()
+        script_input = st.text_area(
+            "✍️ Write or paste your script here",
+            value=st.session_state.get('script_input', """# Welcome to Our Explainer Video
 
-# ============ RUN APP ============
-if __name__ == "__main__":
-    main()
+This is a powerful way to communicate your message.
+
+Key benefits:
+- Easy to understand
+- Engaging visual content
+- Professional voiceover
+- Automated generation
+
+Our platform makes it simple:
+User satisfaction: 95%
+Efficiency: 85%
+Cost savings: 70%
+
+# Start creating your video today!"""),
+            height=400,
+            help="Use # for titles, - for bullet points, and key=value for charts"
+        )
+        
+        # Script tips
+        with st.expander("📖 Script Writing Tips"):
+            st.markdown("""
+            ### How to Write Your Script
+            
+            **Use # for titles:**  
+            `# Welcome to Our Video`
+            
+            **Use - for bullet points:**  
+            `- First important point`  
+            `- Second key insight`  
+            
+            **Use key=value for charts:**  
+            `Sales: A=100, B=200, C=150`
+            
+            **Regular text becomes scenes:**
+            Just write normally and our AI will create scenes from your content.
+            
+            ### Example Script:
