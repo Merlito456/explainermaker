@@ -34,7 +34,7 @@ class FreeImageGenerator:
     def get_random_image(self, keyword="nature", width=1920, height=1080):
         """Get a free stock image based on keyword"""
         try:
-            url = f"https://picsum.photos/seed/{random.randint(1, 1000)}/{width}/{height}"
+            url = "https://picsum.photos/seed/" + str(random.randint(1, 1000)) + "/" + str(width) + "/" + str(height)
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 img = Image.open(BytesIO(response.content))
@@ -43,7 +43,7 @@ class FreeImageGenerator:
             pass
         
         try:
-            url = f"https://source.unsplash.com/featured/{width}x{height}/?{keyword}"
+            url = "https://source.unsplash.com/featured/" + str(width) + "x" + str(height) + "/?" + keyword
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 img = Image.open(BytesIO(response.content))
@@ -160,7 +160,7 @@ class FreeVideoGenerator:
         
         y = 200
         for point in bullets[:6]:
-            bullet_text = f"• {point}"
+            bullet_text = "• " + point
             bbox = draw.textbbox((0, 0), bullet_text, font=bullet_font)
             x = 150
             draw.text((x, y), bullet_text, fill='white', font=bullet_font)
@@ -288,7 +288,7 @@ class ScriptParser:
                             'type': 'chart',
                             'title': title,
                             'data': data,
-                            'voiceover': f"Chart showing {title} with data: {data_str}"
+                            'voiceover': "Chart showing " + title + " with data: " + data_str
                         })
                         current_scene = None
                     except:
@@ -330,14 +330,16 @@ class ScriptParser:
                     bullets = [b for b in bullets if len(b) > 5][:5]
                     scenes.append({
                         'type': 'bullets',
-                        'title': f"Key Point {i+1}",
+                        'title': "Key Point " + str(i+1),
                         'bullets': bullets,
                         'voiceover': sentence
                     })
                 else:
                     numbers = re.findall(r'\d+', sentence)
                     if numbers:
-                        data = {f"Item{i+1}": int(n) for i, n in enumerate(numbers[:6])}
+                        data = {}
+                        for i, n in enumerate(numbers[:6]):
+                            data["Item" + str(i+1)] = int(n)
                         scenes.append({
                             'type': 'chart',
                             'title': "Data Visualization",
@@ -376,7 +378,7 @@ class AutoVideoMaker:
             tts.save(output_path)
             return output_path
         except Exception as e:
-            st.error(f"Error generating voiceover: {str(e)}")
+            st.error("Error generating voiceover: " + str(e))
             silent = AudioSegment.silent(duration=3000)
             silent.export(output_path, format="mp3")
             return output_path
@@ -435,7 +437,7 @@ class AutoVideoMaker:
             st.error("Could not parse script. Please check your input.")
             return None
         
-        st.success(f"✅ Generated {len(scenes)} scenes from your script")
+        st.success("✅ Generated " + str(len(scenes)) + " scenes from your script")
         
         video_clips = []
         
@@ -447,10 +449,10 @@ class AutoVideoMaker:
         for idx, scene in enumerate(scenes):
             progress = (idx / total_scenes) * 100
             progress_bar.progress(int(progress))
-            status_text.text(f"🎬 Creating scene {idx + 1}/{total_scenes}: {scene.get('type', 'unknown')}")
+            status_text.text("🎬 Creating scene " + str(idx + 1) + "/" + str(total_scenes) + ": " + scene.get('type', 'unknown'))
             
             voiceover_text = scene.get('voiceover', '')
-            audio_path = os.path.join(self.temp_dir, f"audio_{idx}.mp3")
+            audio_path = os.path.join(self.temp_dir, "audio_" + str(idx) + ".mp3")
             self.generate_voiceover(voiceover_text, audio_path, lang)
             
             duration = self.get_audio_duration(audio_path)
@@ -490,6 +492,77 @@ class AutoVideoMaker:
         
         return output_path
 
+# ============ SAMPLE SCRIPTS ============
+BUSINESS_SCRIPT = """# Welcome to Our Business Explainer
+
+In today's competitive market, businesses need to adapt and innovate.
+
+Key strategies for success:
+- Customer-centric approach
+- Digital transformation
+- Data-driven decisions
+- Continuous innovation
+
+Our approach has shown remarkable results:
+Customer satisfaction: 95%
+Revenue growth: 150%
+Market share: 35%
+Employee engagement: 90%
+
+# Join us in transforming your business"""
+
+SCIENCE_SCRIPT = """# The Future of Science
+
+Science is advancing at an unprecedented pace.
+
+Breakthrough technologies:
+- Artificial Intelligence
+- Gene Editing
+- Quantum Computing
+- Renewable Energy
+
+Impact on society:
+Healthcare: 85%
+Environment: 70%
+Education: 65%
+Economy: 90%
+
+# A brighter future through science"""
+
+EDUCATION_SCRIPT = """# Learn Anywhere, Anytime
+
+Education is evolving with technology.
+
+Modern learning methods:
+- Online courses
+- Interactive content
+- AI tutors
+- Collaborative projects
+
+Student success rates:
+Online: 88%
+Traditional: 75%
+Blended: 92%
+
+# Empowering learners worldwide"""
+
+DEFAULT_SCRIPT = """# Welcome to Our Explainer Video
+
+This is a powerful way to communicate your message.
+
+Key benefits:
+- Easy to understand
+- Engaging visual content
+- Professional voiceover
+- Automated generation
+
+Our platform makes it simple:
+User satisfaction: 95%
+Efficiency: 85%
+Cost savings: 70%
+
+# Start creating your video today!"""
+
 # ============ MAIN APP ============
 def main():
     # Header
@@ -519,65 +592,15 @@ def main():
         st.subheader("📝 Sample Scripts")
         
         if st.button("📊 Business Script"):
-            sample = """# Welcome to Our Business Explainer
-            
-In today's competitive market, businesses need to adapt and innovate.
-
-Key strategies for success:
-- Customer-centric approach
-- Digital transformation
-- Data-driven decisions
-- Continuous innovation
-
-Our approach has shown remarkable results:
-Customer satisfaction: 95%
-Revenue growth: 150%
-Market share: 35%
-Employee engagement: 90%
-
-# Join us in transforming your business"""
-            st.session_state.script_input = sample
+            st.session_state.script_input = BUSINESS_SCRIPT
             st.rerun()
         
         if st.button("🔬 Science Script"):
-            sample = """# The Future of Science
-            
-Science is advancing at an unprecedented pace.
-
-Breakthrough technologies:
-- Artificial Intelligence
-- Gene Editing
-- Quantum Computing
-- Renewable Energy
-
-Impact on society:
-Healthcare: 85%
-Environment: 70%
-Education: 65%
-Economy: 90%
-
-# A brighter future through science"""
-            st.session_state.script_input = sample
+            st.session_state.script_input = SCIENCE_SCRIPT
             st.rerun()
         
         if st.button("🎓 Education Script"):
-            sample = """# Learn Anywhere, Anytime
-            
-Education is evolving with technology.
-
-Modern learning methods:
-- Online courses
-- Interactive content
-- AI tutors
-- Collaborative projects
-
-Student success rates:
-Online: 88%
-Traditional: 75%
-Blended: 92%
-
-# Empowering learners worldwide"""
-            st.session_state.script_input = sample
+            st.session_state.script_input = EDUCATION_SCRIPT
             st.rerun()
     
     # Main content
@@ -587,26 +610,9 @@ Blended: 92%
     with tab1:
         st.subheader("Enter Your Script")
         
-        default_script = """# Welcome to Our Explainer Video
-
-This is a powerful way to communicate your message.
-
-Key benefits:
-- Easy to understand
-- Engaging visual content
-- Professional voiceover
-- Automated generation
-
-Our platform makes it simple:
-User satisfaction: 95%
-Efficiency: 85%
-Cost savings: 70%
-
-# Start creating your video today!"""
-        
         script_input = st.text_area(
             "✍️ Write or paste your script here",
-            value=st.session_state.get('script_input', default_script),
+            value=st.session_state.get('script_input', DEFAULT_SCRIPT),
             height=400,
             help="Use # for titles, - for bullet points, and key=value for charts"
         )
@@ -627,7 +633,7 @@ Cost savings: 70%
                     scenes = parser.auto_generate_scenes(script_input)
                     st.session_state.scenes = scenes
                     st.session_state.auto_generated = True
-                    st.success(f"✅ Analyzed! Found {len(scenes)} scenes")
+                    st.success("✅ Analyzed! Found " + str(len(scenes)) + " scenes")
                     st.rerun()
                 else:
                     st.warning("Please enter a script first")
@@ -646,28 +652,29 @@ Cost savings: 70%
         if not st.session_state.scenes:
             st.info("Enter a script and click 'Analyze Script' to generate scenes")
         else:
-            st.success(f"📊 {len(st.session_state.scenes)} scenes generated")
+            st.success("📊 " + str(len(st.session_state.scenes)) + " scenes generated")
             
             for idx, scene in enumerate(st.session_state.scenes):
-                with st.expander(f"Scene {idx + 1}: {scene.get('type', 'unknown').title()}", expanded=False):
+                with st.expander("Scene " + str(idx + 1) + ": " + scene.get('type', 'unknown').title(), expanded=False):
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
                         if scene['type'] == 'text':
-                            st.markdown(f"📝 **Content:** {scene.get('content', '')}")
+                            st.markdown("📝 **Content:** " + scene.get('content', ''))
                         elif scene['type'] == 'bullets':
-                            st.markdown(f"📌 **Title:** {scene.get('title', '')}")
+                            st.markdown("📌 **Title:** " + scene.get('title', ''))
                             for bullet in scene.get('bullets', []):
-                                st.markdown(f"  • {bullet}")
+                                st.markdown("  • " + bullet)
                         elif scene['type'] == 'chart':
-                            st.markdown(f"📊 **Chart:** {scene.get('title', '')}")
+                            st.markdown("📊 **Chart:** " + scene.get('title', ''))
                             st.json(scene.get('data', {}))
                     
                     with col2:
                         voiceover = scene.get('voiceover', '')
-                        st.caption(f"🎤 Voiceover: {voiceover[:100]}{'...' if len(voiceover) > 100 else ''}")
+                        display_text = voiceover[:100] + '...' if len(voiceover) > 100 else voiceover
+                        st.caption("🎤 Voiceover: " + display_text)
                         duration = len(voiceover) * 0.3
-                        st.caption(f"⏱️ Estimated: {int(duration)} seconds")
+                        st.caption("⏱️ Estimated: " + str(int(duration)) + " seconds")
     
     # TAB 3: Generate Video
     with tab3:
@@ -677,13 +684,13 @@ Cost savings: 70%
             st.warning("Please analyze your script first (Tab 1) to generate scenes.")
         else:
             total_duration = sum(len(scene.get('voiceover', '')) * 0.3 for scene in st.session_state.scenes)
-            st.info(f"📊 Video will have {len(st.session_state.scenes)} scenes and be approximately {int(total_duration)} seconds long")
+            st.info("📊 Video will have " + str(len(st.session_state.scenes)) + " scenes and be approximately " + str(int(total_duration)) + " seconds long")
             
             col1, col2 = st.columns([2, 1])
             with col1:
                 video_name = st.text_input(
                     "Video Name",
-                    value=f"auto_explainer_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    value="auto_explainer_" + datetime.now().strftime('%Y%m%d_%H%M%S')
                 )
             
             with col2:
@@ -701,7 +708,7 @@ Cost savings: 70%
                             st.error("No script found. Please enter a script first.")
                             return
                         
-                        output_filename = f"{video_name}.mp4"
+                        output_filename = video_name + ".mp4"
                         output_path = os.path.join(tempfile.gettempdir(), output_filename)
                         
                         video_maker.generate_video(script_text, output_path, lang)
@@ -712,7 +719,7 @@ Cost savings: 70%
                         st.success("🎉 Video generated successfully with auto-created scenes!")
                         
                     except Exception as e:
-                        st.error(f"❌ Error generating video: {str(e)}")
+                        st.error("❌ Error generating video: " + str(e))
                         st.exception(e)
             
             if st.session_state.video_generated and st.session_state.video_path:
@@ -728,7 +735,7 @@ Cost savings: 70%
                         st.download_button(
                             label="📥 Download Video (MP4)",
                             data=video_bytes,
-                            file_name=f"{video_name}.mp4",
+                            file_name=video_name + ".mp4",
                             mime="video/mp4",
                             use_container_width=True
                         )
@@ -736,7 +743,7 @@ Cost savings: 70%
                     st.video(st.session_state.video_path)
                     
                 except Exception as e:
-                    st.error(f"Error loading video: {str(e)}")
+                    st.error("Error loading video: " + str(e))
 
 # ============ RUN APP ============
 if __name__ == "__main__":
